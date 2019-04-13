@@ -14,7 +14,9 @@ static SharedGLObject compile_glsl(GLenum type, const std::string &source) {
     R_PROFILE(__func__);
 
     const SharedGLObject shader = std::make_shared<GLObject>();
-    if (!shader->init(glCreateShader(type), glDeleteShader)) {
+    int ret = glCreateShader(type);
+    LOG_ERROR("glCreateShader({}) {} error {}", (int)type, ret, (int)glGetError());
+    if (!shader->init(ret, glDeleteShader)) {
         return SharedGLObject();
     }
 

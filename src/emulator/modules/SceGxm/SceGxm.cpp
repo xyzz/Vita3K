@@ -26,7 +26,26 @@
 #include <util/lock_and_find.h>
 #include <util/log.h>
 
+#include <SDL2/SDL_video.h>
+
 #include <psp2/kernel/error.h>
+
+class GlScope {
+public:
+    GlScope(SDL_Window *window, SDL_GLContext context) {
+        gl_mutex.lock();
+        int ret = SDL_GL_MakeCurrent(window, context);
+        LOG_ERROR("SDL_GL_MakeCurrent {} {} for {} {}", ret, SDL_GetError(), (void*)window, (void*)context);
+    }
+    ~GlScope() {
+        gl_mutex.unlock();
+    }
+private:
+    static std::mutex gl_mutex;
+};
+std::mutex GlScope::gl_mutex;
+
+static SDL_GLContext g_gl_context;
 
 struct SceGxmContext {
     GxmContextState state;
@@ -104,6 +123,8 @@ EXPORT(int, sceGxmBeginScene, SceGxmContext *context, unsigned int flags, const 
     if (depthStencil == nullptr && colorSurface == nullptr) {
         return RET_ERROR(SCE_GXM_ERROR_INVALID_VALUE);
     }
+
+    GlScope scope(host.window.get(), g_gl_context);
 
     context->state.fragment_sync_object = fragmentSyncObject;
     if (fragmentSyncObject.get(host.mem) != nullptr) {
@@ -238,6 +259,8 @@ EXPORT(int, sceGxmCreateContext, const emu::SceGxmContextParams *params, Ptr<Sce
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
     }
 
+    g_gl_context = ctx->renderer.gl.get();
+
     return 0;
 }
 
@@ -253,6 +276,8 @@ EXPORT(int, sceGxmCreateRenderTarget, const SceGxmRenderTargetParams *params, Pt
     if (!*renderTarget) {
         return RET_ERROR(SCE_GXM_ERROR_OUT_OF_MEMORY);
     }
+
+    GlScope scope(host.window.get(), g_gl_context);
 
     SceGxmRenderTarget *const rt = renderTarget->get(host.mem);
     if (!renderer::create(rt->renderer, *params)) {
@@ -416,6 +441,8 @@ EXPORT(int, sceGxmDraw, SceGxmContext *context, SceGxmPrimitiveType primType, Sc
         context->state.fragment_last_reserve_status = SceGxmLastReserveStatus::Available;
     }
 
+    GlScope scope(host.window.get(), g_gl_context);
+
     if (!renderer::sync_state(context->renderer, context->state, host.mem, host.gui.optimisation_menu.texture_cache, host.cfg.log_active_shaders, host.cfg.log_uniforms)) {
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
     }
@@ -453,6 +480,8 @@ EXPORT(int, sceGxmEndScene, SceGxmContext *context, const emu::SceGxmNotificatio
     const Address data = context->state.color_surface.pbeEmitWords[3];
     uint32_t *const pixels = Ptr<uint32_t>(data).get(mem);
 
+    GlScope scope(host.window.get(), g_gl_context);
+
     renderer::end_scene(context->renderer, context->state.fragment_sync_object.get(host.mem), width, height, stride_in_pixels, pixels);
     if (fragmentNotification) {
         volatile uint32_t *fragment_address = fragmentNotification->address.get(host.mem);
@@ -469,6 +498,7 @@ EXPORT(int, sceGxmExecuteCommandList) {
 
 EXPORT(void, sceGxmFinish, SceGxmContext *context) {
     assert(context != nullptr);
+    GlScope scope(host.window.get(), g_gl_context);
     renderer::finish(context->renderer);
 }
 
@@ -1288,6 +1318,8 @@ EXPORT(int, sceGxmShaderPatcherCreateFragmentProgram, SceGxmShaderPatcher *shade
     fp->program = programId->program;
     fp->renderer_data = std::make_unique<renderer::FragmentProgram>();
 
+    GlScope scope(host.window.get(), g_gl_context);
+
     if (!renderer::create(*fp->renderer_data.get(), host.renderer, *programId->program.get(mem), blendInfo, host.base_path.c_str(), host.io.title_id.c_str())) {
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
     }
@@ -1312,6 +1344,8 @@ EXPORT(int, sceGxmShaderPatcherCreateMaskUpdateFragmentProgram, SceGxmShaderPatc
     fp->program = alloc(mem, size_mask_gxp, __FUNCTION__);
     memcpy(const_cast<SceGxmProgram *>(fp->program.get(mem)), mask_gxp, size_mask_gxp);
     fp->renderer_data = std::make_unique<renderer::FragmentProgram>();
+
+    GlScope scope(host.window.get(), g_gl_context);
 
     if (!renderer::create(*fp->renderer_data, host.renderer, *fp->program.get(mem), nullptr, host.base_path.c_str(), host.io.title_id.c_str())) {
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
@@ -1341,6 +1375,8 @@ EXPORT(int, sceGxmShaderPatcherCreateVertexProgram, SceGxmShaderPatcher *shaderP
     vp->streams.insert(vp->streams.end(), &streams[0], &streams[streamCount]);
     vp->attributes.insert(vp->attributes.end(), &attributes[0], &attributes[attributeCount]);
     vp->renderer_data = std::make_unique<renderer::VertexProgram>();
+
+    GlScope scope(host.window.get(), g_gl_context);
 
     if (!renderer::create(*vp->renderer_data.get(), host.renderer, *programId->program.get(mem), host.base_path.c_str(), host.io.title_id.c_str())) {
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
