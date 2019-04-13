@@ -35,9 +35,10 @@ public:
     GlScope(SDL_Window *window, SDL_GLContext context) {
         gl_mutex.lock();
         int ret = SDL_GL_MakeCurrent(window, context);
-        LOG_ERROR("SDL_GL_MakeCurrent {} {} for {} {}", ret, SDL_GetError(), (void*)window, (void*)context);
+        // LOG_ERROR("SDL_GL_MakeCurrent {} {} for {} {}", ret, SDL_GetError(), (void*)window, (void*)context);
     }
     ~GlScope() {
+        SDL_GL_MakeCurrent(NULL, NULL);
         gl_mutex.unlock();
     }
 private:
@@ -259,6 +260,7 @@ EXPORT(int, sceGxmCreateContext, const emu::SceGxmContextParams *params, Ptr<Sce
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
     }
 
+    SDL_GL_MakeCurrent(NULL, NULL);
     g_gl_context = ctx->renderer.gl.get();
 
     return 0;
